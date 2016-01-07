@@ -33,14 +33,15 @@ class Sequential(Layer):
         self.layers[0].get_input = tmp
         return Y
 
-    def set_previous(self, layer):
+    def set_previous(self, layer, overwrite_weights=True):
         self.layers[0].previous = layer
 
-    def add(self, layer):
+    def add(self, layer, overwrite_weights=True):
         layer.layer_cache = self.layer_cache
         self.layers.append(layer)
         if len(self.layers) > 1:
-            self.layers[-1].set_previous(self.layers[-2])
+            self.layers[-1].set_previous(self.layers[-2],
+                                         overwrite_weights=overwrite_weights)
             if not hasattr(self.layers[0], 'input'):
                 self.set_input()
 
@@ -223,19 +224,19 @@ class Graph(Layer):
             if hasattr(l, 'reset_states') and getattr(l, 'stateful', False):
                 l.reset_states()
 
-    def set_previous(self, layer, connection_map={}):
+    def set_previous(self, layer, connection_map={}, overwrite_weights=True):
         if self.nb_input != layer.nb_output:
             raise Exception('Cannot connect layers: '
                             'input count does not match output count.')
         if self.nb_input == 1:
-            self.inputs[self.input_order[0]].set_previous(layer)
+            self.inputs[self.input_order[0]].set_previous(layer, overwrite_weights)
         else:
             if not connection_map:
                 raise Exception('Cannot attach multi-input layer: '
                                 'no connection_map provided.')
             for k, v in connection_map.items():
                 if k in self.inputs and v in layer.outputs:
-                    self.inputs[k].set_previous(layer.outputs[v])
+                    self.inputs[k].set_previous(layer.outputs[v], overwrite_weights)
                 else:
                     raise Exception('Invalid connection map.')
 
@@ -301,7 +302,7 @@ class Graph(Layer):
 
     def add_node(self, layer, name, input=None, inputs=[],
                  merge_mode='concat', concat_axis=-1, dot_axes=-1,
-                 create_output=False):
+                 create_output=False, overwrite_weights=True):
         '''Add a node in the graph. It can be connected to multiple
         inputs, which will first be merged into one tensor
         according to the mode specified.
@@ -320,6 +321,8 @@ class Graph(Layer):
                 specification; see the `Merge layer for details.
             create_output: boolean. Set this to `True` if you want the output
                 of your node to be an output of the graph.
+            overwrite_weights: boolean. Set this to `False` if you want to keep
+                the weights already on layer
         '''
         if name in self.namespace:
             raise Exception('Duplicate node identifier: ' + name)
@@ -327,9 +330,9 @@ class Graph(Layer):
             if input not in self.namespace:
                 raise Exception('Unknown node/input identifier: ' + input)
             if input in self.nodes:
-                layer.set_previous(self.nodes[input])
+                layer.set_previous(self.nodes[input], overwrite_weights)
             elif input in self.inputs:
-                layer.set_previous(self.inputs[input])
+                layer.set_previous(self.inputs[input], overwrite_weights)
         if inputs:
             to_merge = []
             for n in inputs:
@@ -341,7 +344,7 @@ class Graph(Layer):
                     raise Exception('Unknown identifier: ' + n)
             merge = Merge(to_merge, mode=merge_mode,
                           concat_axis=concat_axis, dot_axes=dot_axes)
-            layer.set_previous(merge)
+            layer.set_previous(merge, overwrite_weights)
 
         self.namespace.add(name)
         layer.layer_cache = self.layer_cache

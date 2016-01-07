@@ -56,7 +56,7 @@ class Layer(object):
         self.get_input = tmp
         return Y
 
-    def set_previous(self, layer, connection_map={}):
+    def set_previous(self, layer, connection_map={}, overwrite_weights=True):
         '''Connect a layer to its parent in the computational graph.
         '''
         assert self.nb_input == layer.nb_output == 1, "Cannot connect layers: input count and output count should be 1."
@@ -66,7 +66,8 @@ class Layer(object):
         if layer.get_output_mask() is not None:
             assert self.supports_masked_input(), "Cannot connect non-masking layer to layer with masked output"
         self.previous = layer
-        self.build()
+        if overwrite_weights:
+            self.build()
 
     def build(self):
         '''Instantiation of layer weights.
@@ -134,17 +135,17 @@ class Layer(object):
             # layer outputs are cached when possible.
             # The hash value of the previous layer output is the id
             # of the input layer feeding this layer.
-            input_layer = self.previous
-            while hasattr(input_layer, 'previous'):
-                input_layer = input_layer.previous
-            if hasattr(self, 'layer_cache'):
-                input_layer_id = '%s_%s' % (id(input_layer), train)
-                if input_layer_id in self.layer_cache:
-                    return self.layer_cache[input_layer_id]
+            # input_layer = self.previous
+            # while hasattr(input_layer, 'previous'):
+            #     input_layer = input_layer.previous
+            # if hasattr(self, 'layer_cache'):
+            #     input_layer_id = '%s_%s' % (id(input_layer), train)
+            #     if input_layer_id in self.layer_cache:
+            #         return self.layer_cache[input_layer_id]
             previous_output = self.previous.get_output(train=train)
-            if hasattr(self, 'layer_cache'):
-                input_layer_id = '%s_%s' % (id(input_layer), train)
-                self.layer_cache[input_layer_id] = previous_output
+            # if hasattr(self, 'layer_cache'):
+            #     input_layer_id = '%s_%s' % (id(input_layer), train)
+            #     self.layer_cache[input_layer_id] = previous_output
             return previous_output
         elif hasattr(self, 'input'):
             return self.input
@@ -1086,14 +1087,15 @@ class AutoEncoder(Layer):
     ```
     '''
     def __init__(self, encoder, decoder, output_reconstruction=True,
-                 weights=None, **kwargs):
+                 weights=None, overwrite_weights=True, **kwargs):
         super(AutoEncoder, self).__init__(**kwargs)
 
         self.output_reconstruction = output_reconstruction
         self.encoder = encoder
         self.decoder = decoder
 
-        self.decoder.set_previous(self.encoder)
+        self.decoder.set_previous(self.encoder,
+                                  overwrite_weights=overwrite_weights)
 
         self.params = []
         self.regularizers = []
@@ -1111,8 +1113,8 @@ class AutoEncoder(Layer):
         if weights is not None:
             self.set_weights(weights)
 
-    def set_previous(self, node):
-        self.encoder.set_previous(node)
+    def set_previous(self, node, overwrite_weights=True):
+        self.encoder.set_previous(node, overwrite_weights=overwrite_weights)
 
     def get_weights(self):
         weights = []
