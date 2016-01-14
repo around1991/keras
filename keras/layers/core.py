@@ -1165,8 +1165,7 @@ class AutoEncoder(Layer):
         self.encoder = encoder
         self.decoder = decoder
 
-        self.decoder.set_previous(self.encoder,
-                                  overwrite_weights=overwrite_weights)
+        self.decoder.set_previous(self.encoder)
 
         if weights is not None:
             self.set_weights(weights)
