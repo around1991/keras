@@ -1187,7 +1187,7 @@ class AutoEncoder(Layer):
 
     def set_previous(self, node, connection_map={}, overwrite_weights=True):
         self.encoder.set_previous(node, connection_map, overwrite_weights)
-        super(AutoEncoder, self).set_previous(node, connection_map)
+        super(AutoEncoder, self).set_previous(node, connection_map, overwrite_weights)
 
     def get_weights(self):
         weights = []
@@ -1529,7 +1529,7 @@ class Siamese(Layer):
         is_graph: Should be set to True when used inside `Graph`
     '''
     def __init__(self, layer, inputs, merge_mode='concat',
-                 concat_axis=1, dot_axes=-1, is_graph=False):
+                 concat_axis=1, dot_axes=-1, is_graph=False, **kwargs):
         if merge_mode not in ['sum', 'mul', 'concat', 'ave',
                               'join', 'cos', 'dot', None]:
             raise Exception('Invalid merge mode: ' + str(merge_mode))
@@ -1728,15 +1728,7 @@ class Siamese(Layer):
                 weights = weights[nb_param:]
 
     def get_config(self):
-        config = {'name': self.__class__.__name__,
-                  'layer': self.layer.get_config(),
-                  'inputs': [m.get_config() for m in self.inputs],
-                  'merge_mode': self.merge_mode,
-                  'concat_axis': self.concat_axis,
-                  'dot_axes': self.dot_axes,
-                  'is_graph': self.is_graph}
-        base_config = super(Siamese, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return self.layer.get_config()
 
 
 class SiameseHead(Layer):

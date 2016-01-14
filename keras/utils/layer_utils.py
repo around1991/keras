@@ -56,7 +56,10 @@ def container_from_config(original_layer_dict, custom_objects={}):
         for node in nodes:
             layer = container_from_config(layer_dict['nodes'].get(node['name']))
             node['layer'] = layer
-            graph_layer.add_node(**node)
+            if not node.pop('shared'):
+                graph_layer.add_node(**node)
+            else:
+                graph_layer.add_shared_node(**node)
 
         outputs = layer_dict.get('output_config')
         for output in outputs:
@@ -71,6 +74,14 @@ def container_from_config(original_layer_dict, custom_objects={}):
                 kwargs[kwarg] = layer_dict[kwarg]
         return AutoEncoder(**kwargs)
 
+    elif name == 'Siamese':
+        kwargs = {}
+        kwargs['layer'] = container_from_config(layer_dict.pop('layer'))
+        kwargs['inputs'] = [container_from_config(layer)
+                            for layer in layer_dict.pop('inputs')]
+        for kwarg in layer_dict:
+            kwargs[kwarg] = layer_dict[kwarg]
+        return Siamese(**kwargs)
     else:
         layer_dict.pop('name')
 

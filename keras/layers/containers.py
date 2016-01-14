@@ -380,10 +380,11 @@ class Graph(Layer):
                                  'merge_mode': merge_mode,
                                  'concat_axis': concat_axis,
                                  'dot_axes': dot_axes,
-                                 'create_output': create_output})
+                                 'create_output': create_output,
+                                 'shared': False})
 
         if create_output:
-            self.add_output(name, input=name)
+            self.add_output(name, input=name, config=False)
 
     def add_shared_node(self, layer, name, inputs=[], merge_mode=None,
                         concat_axis=-1, dot_axes=-1, outputs=[],
@@ -443,7 +444,8 @@ class Graph(Layer):
                                  'merge_mode': merge_mode,
                                  'concat_axis': concat_axis,
                                  'dot_axes': dot_axes,
-                                 'create_output': create_output if merge_mode else False})
+                                 'create_output': create_output if merge_mode else False,
+                                 'shared': True})
         if not merge_mode:
             for i in range(len(outputs)):
                 sh = SiameseHead(i)
@@ -455,15 +457,16 @@ class Graph(Layer):
                                          'inputs': [name],
                                          'create_output': create_output})
                 if create_output:
-                    self.add_output(sh_name, input=sh_name)
+                    self.add_output(sh_name, input=sh_name, config=False)
 
         if create_output and merge_mode:
             if merge_mode == 'join':
                 raise Exception('Output can not be of type OrderedDict')
-            self.add_output(name, input=name)
+            self.add_output(name, input=name, config=False)
 
     def add_output(self, name, input=None, inputs=[],
-                   merge_mode='concat', concat_axis=-1, dot_axes=-1):
+                   merge_mode='concat', concat_axis=-1, dot_axes=-1,
+                   config=True):
         '''Add an output to the graph.
 
         This output can merge several node outputs into a single output.
@@ -479,6 +482,8 @@ class Graph(Layer):
                 input concatenation axis.
             dot_axes: when `merge_mode='dot'`, this is the contraction axes
                 specification; see the `Merge layer for details.
+            config: whether this output was manually added or automatically
+                created (e.g. by the 'create_output' argument of add_node)
         '''
         if name in self.output_order:
             raise Exception('Duplicate output identifier: ' + name)
@@ -500,12 +505,14 @@ class Graph(Layer):
             self.outputs[name] = merge
 
         self.output_order.append(name)
-        self.output_config.append({'name': name,
-                                   'input': input,
-                                   'inputs': inputs,
-                                   'merge_mode': merge_mode,
-                                   'concat_axis': concat_axis,
-                                   'dot_axes': dot_axes})
+        if config:
+            self.output_config.append({'name': name,
+                                       'input': input,
+                                       'inputs': inputs,
+                                       'merge_mode': merge_mode,
+                                       'concat_axis': concat_axis,
+                                       'dot_axes': dot_axes,
+                                       'config': config})
 
     def get_config(self):
         return {'name': self.__class__.__name__,
