@@ -81,6 +81,8 @@ def weighted_objective(fn):
         # score_array has ndim >= 2
         score_array = fn(y_true, y_pred)
         if mask is not None:
+            # Cast the mask to floatX to avoid float64 upcasting in theano
+            mask = K.cast(mask, K.floatx())
             # mask should have the same shape as score_array
             score_array *= mask
             #  the loss per batch should be proportional
@@ -148,12 +150,24 @@ def model_from_config(config, custom_objects={}):
     model = container_from_config(config, custom_objects=custom_objects)
     if model_name == 'Graph':
         model.__class__ = Graph
+        model.name = model_name
     elif model_name == 'Sequential':
         model.__class__ = Sequential
+        model.name = model_name
 
     if 'optimizer' in config:
         # if it has an optimizer, the model is assumed to be compiled
         loss = config.get('loss')
+
+        # if a custom loss function is passed replace it in loss
+        if model_name == 'Graph':
+            for l in loss:
+                for c in custom_objects:
+                    if loss[l] == c:
+                        loss[l] = custom_objects[c]
+        elif model_name == 'Sequential' and loss in custom_objects:
+            loss = custom_objects[loss]
+
         class_mode = config.get('class_mode')
 
         optimizer_params = dict([(k, v) for k, v in config.get('optimizer').items()])
@@ -368,8 +382,21 @@ class Model(object):
         `keras.models.from_json(json_string, custom_objects={})`.
         '''
         import json
+
+        def get_json_type(obj):
+
+            # if obj is any numpy type
+            if type(obj).__module__ == np.__name__:
+                return obj.item()
+
+            # if obj is a python 'type'
+            if type(obj).__name__ == type.__name__:
+                return obj.__name__
+
+            raise TypeError('Not JSON Serializable')
+
         config = self.get_config()
-        return json.dumps(config, **kwargs)
+        return json.dumps(config, default=get_json_type, **kwargs)
 
     def summary(self):
         '''Print out a summary of the model architecture,
@@ -489,14 +516,7 @@ class Sequential(Model, containers.Sequential):
                 used for scaling the loss function (during training only).
             sample_weight: list or numpy array with 1:1 mapping to
                 the training samples, used for scaling the loss function
-                (during training only). For time-distributed data,
-                there is one weight per sample *per timestep*,
-                i.e. if your output data is shaped
-                `(nb_samples, timesteps, output_dim)`,
-                your mask should be of shape `(nb_samples, timesteps, 1)`.
-                This allows you to mask out or reweight individual
-                output timesteps, which is useful
-                in sequence to sequence learning.
+                (during training only).
         '''
         if type(X) == list:
             if len(set([len(a) for a in X] + [len(y)])) != 1:
@@ -883,13 +903,14 @@ class Sequential(Model, containers.Sequential):
         def input_validation(generator_output):
             if not hasattr(generator_output, '__len__'):
                 _stop.set()
-                raise Exception('The generator output must be a tuple.')
+                raise Exception('The generator output must be a tuple. Found: ' + str(type(generator_output)))
             if len(generator_output) == 2:
                 X, y = generator_output
                 if type(X) == list:
                     assert len(set([len(a) for a in X] + [len(y)])) == 1
                 else:
                     assert len(X) == len(y)
+                    X = [X]
                 sample_weight = None
             elif len(generator_output) == 3:
                 X, y, sample_weight = generator_output
@@ -897,6 +918,7 @@ class Sequential(Model, containers.Sequential):
                     assert len(set([len(a) for a in X] + [len(y), len(sample_weight)])) == 1
                 else:
                     assert len(X) == len(y) == len(sample_weight)
+                    X = [X]
             else:
                 _stop.set()
                 raise Exception('The generator output tuple must have '
@@ -912,14 +934,17 @@ class Sequential(Model, containers.Sequential):
             while not _stop.is_set():
                 try:
                     if generator_queue.qsize() < max_queue_size:
-                        generator_output = next(generator)
+                        try:
+                            generator_output = next(generator)
+                        except ValueError:
+                            continue
                         generator_queue.put(generator_output)
                         i += 1
                     else:
                         time.sleep(wait_time)
                 except:
                     _stop.set()
-                    return
+                    raise
 
         generator_threads = [threading.Thread(target=generator_task) for _ in range(nb_worker)]
         for thread in generator_threads:
@@ -932,6 +957,7 @@ class Sequential(Model, containers.Sequential):
             samples_seen = 0
             batch_index = 0
             while samples_seen < samples_per_epoch:
+                generator_output = None
                 while not _stop.is_set():
                     if not generator_queue.empty():
                         generator_output = generator_queue.get()

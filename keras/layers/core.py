@@ -36,20 +36,34 @@ class Layer(object):
         allowed_kwargs = {'input_shape',
                           'trainable',
                           'batch_input_shape',
-                          'cache_enabled'}
+                          'cache_enabled',
+                          'name'}
         for kwarg in kwargs:
             assert kwarg in allowed_kwargs, 'Keyword argument not understood: ' + kwarg
+
         if 'input_shape' in kwargs:
             self.set_input_shape((None,) + tuple(kwargs['input_shape']))
         if 'batch_input_shape' in kwargs:
             self.set_input_shape(tuple(kwargs['batch_input_shape']))
+        self.trainable = True
         if 'trainable' in kwargs:
-            self._trainable = kwargs['trainable']
+            self.trainable = kwargs['trainable']
+        self.name = self.__class__.__name__.lower()
+        if 'name' in kwargs:
+            self.name = kwargs['name']
         if not hasattr(self, 'params'):
             self.params = []
-        self._cache_enabled = True
+        self.cache_enabled = True
         if 'cache_enabled' in kwargs:
-            self._cache_enabled = kwargs['cache_enabled']
+            self.cache_enabled = kwargs['cache_enabled']
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name
 
     @property
     def cache_enabled(self):
@@ -166,7 +180,7 @@ class Layer(object):
             return self.input
         else:
             raise Exception('Layer is not connected' +
-                            'and is not an input layer.')
+                            ' and is not an input layer.')
 
     def supports_masked_input(self):
         '''Whether or not this layer respects the output mask of its previous
@@ -234,7 +248,8 @@ class Layer(object):
             config['input_shape'] = self._input_shape[1:]
         if hasattr(self, '_trainable'):
             config['trainable'] = self._trainable
-        config['cache_enabled'] =  self.cache_enabled
+        config['cache_enabled'] = self.cache_enabled
+        config['custom_name'] = self.name
         return config
 
     def get_params(self):
@@ -308,8 +323,6 @@ class Masking(MaskedLayer):
         self.input = K.placeholder(ndim=3)
 
     def get_output_mask(self, train=False):
-        if K._BACKEND == 'tensorflow':
-            raise Exception('Masking is Theano-only for the time being.')
         X = self.get_input(train)
         return K.any(K.ones_like(X) * (1. - K.equal(X, self.mask_value)),
                      axis=-1)
@@ -820,7 +833,7 @@ class Flatten(Layer):
 
     def get_output(self, train=False):
         X = self.get_input(train)
-        return K.flatten(X)
+        return K.batch_flatten(X)
 
 
 class RepeatVector(Layer):
@@ -1105,7 +1118,9 @@ class TimeDistributedDense(MaskedLayer):
             output = K.dot(x, self.W) + self.b
             return output, []
 
-        last_output, outputs, states = K.rnn(step, X, [], masking=False)
+        last_output, outputs, states = K.rnn(step, X,
+                                             initial_states=[],
+                                             mask=None)
         outputs = self.activation(outputs)
         return outputs
 
@@ -1378,18 +1393,16 @@ class Lambda(Layer):
         else:
             output_shape_func = marshal.loads(self._output_shape)
             output_shape_func = types.FunctionType(output_shape_func, globals())
-            shape = output_shape_func(self.previous.output_shape)
+            shape = output_shape_func(self.input_shape)
             if type(shape) not in {list, tuple}:
                 raise Exception('output_shape function must return a tuple')
             return tuple(shape)
 
     def get_output(self, train=False):
+        X = self.get_input(train)
         func = marshal.loads(self.function)
         func = types.FunctionType(func, globals())
-        if hasattr(self, 'previous'):
-            return func(self.previous.get_output(train))
-        else:
-            return func(self.input)
+        return func(X)
 
 
 class MaskedLambda(MaskedLayer, Lambda):

@@ -82,10 +82,11 @@ def container_from_config(original_layer_dict, custom_objects={}):
         for kwarg in layer_dict:
             kwargs[kwarg] = layer_dict[kwarg]
         return Siamese(**kwargs)
-    else:
+    else:  # this is a non-topological layer (e.g. Dense, etc.)
         layer_dict.pop('name')
 
         for k, v in layer_dict.items():
+            # a dictionary argument may be a regularizer or constraint
             if isinstance(v, dict):
                 vname = v.pop('name')
                 if vname in [x for x, y in inspect.getmembers(constraints, predicate=inspect.isclass)]:
@@ -96,6 +97,9 @@ def container_from_config(original_layer_dict, custom_objects={}):
                     # not a regularizer of constraint, don't touch it
                     v['name'] = vname
 
+        # the "name" keyword argument of layers is saved as "custom_name"
+        if 'custom_name' in layer_dict:
+            layer_dict['name'] = layer_dict.pop('custom_name')
         base_layer = get_layer(name, layer_dict)
         return base_layer
 
