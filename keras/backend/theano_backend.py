@@ -5,7 +5,6 @@ from theano.tensor.signal import downsample
 import numpy as np
 from .common import _FLOATX, _EPSILON
 
-
 # INTERNAL UTILS
 theano.config.floatX = _FLOATX
 
@@ -185,7 +184,7 @@ def abs(x):
 
 
 def sqrt(x):
-    x = T.clip(x, 0., np.inf)
+    x = T.clip(x, 0., 1e8)
     return T.sqrt(x)
 
 
@@ -385,8 +384,8 @@ class Function(object):
         return self.function(*inputs)
 
 
-def function(inputs, outputs, updates=[]):
-    return Function(inputs, outputs, updates=updates)
+def function(inputs, outputs, updates=[], **kwargs):
+    return Function(inputs, outputs, updates=updates, **kwargs)
 
 
 def gradients(loss, variables):
@@ -539,7 +538,7 @@ def dropout(x, level, seed=None):
 
 def l2_normalize(x, axis):
     norm = T.sqrt(T.sum(T.square(x), axis=axis, keepdims=True))
-    return x / norm
+    return T.switch(T.eq(norm, 0.0), 0, x / norm)
 
 
 # CONVOLUTIONS

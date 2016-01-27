@@ -381,6 +381,7 @@ class Graph(Layer):
                                  'concat_axis': concat_axis,
                                  'dot_axes': dot_axes,
                                  'create_output': create_output,
+                                 'overwrite_weights': overwrite_weights,
                                  'shared': False})
 
         if create_output:
@@ -445,6 +446,7 @@ class Graph(Layer):
                                  'concat_axis': concat_axis,
                                  'dot_axes': dot_axes,
                                  'create_output': create_output if merge_mode else False,
+                                 'outputs': outputs,
                                  'shared': True})
         if not merge_mode:
             for i in range(len(outputs)):
@@ -453,9 +455,6 @@ class Graph(Layer):
                 sh_name = outputs[i]
                 self.namespace.add(sh_name)
                 self.nodes[sh_name] = sh
-                self.node_config.append({'name': sh_name,
-                                         'inputs': [name],
-                                         'create_output': create_output})
                 if create_output:
                     self.add_output(sh_name, input=sh_name, config=False)
 

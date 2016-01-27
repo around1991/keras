@@ -554,7 +554,7 @@ class Merge(Layer):
         elif self.mode == 'cos':
             if K._BACKEND != 'theano':
                 raise Exception('"dot" merge mode will only work with Theano.')
-            import theano
+            import theano.tensor as T
             l1 = self.layers[0].get_output(train)
             l2 = self.layers[1].get_output(train)
             output = T.batched_tensordot(l1, l2, self.dot_axes) / T.sqrt(T.batched_tensordot(l1, l1, self.dot_axes) * T.batched_tensordot(l2, l2, self.dot_axes))
@@ -1668,7 +1668,9 @@ class Siamese(Layer):
         from theano import tensor as T
         l1 = self.get_output_at(0, train)
         l2 = self.get_output_at(1, train)
-        output = T.batched_tensordot(l1, l2, self.dot_axes) / T.sqrt(T.batched_tensordot(l1, l1, self.dot_axes) * T.batched_tensordot(l2, l2, self.dot_axes))
+        norm_l1 = K.l2_normalize(l1, axis=-1)
+        norm_l2 = K.l2_normalize(l2, axis=-1)
+        output = T.batched_tensordot(norm_l1, norm_l2, self.dot_axes)
         output = output.dimshuffle((0, 'x'))
         return output
 
@@ -1742,10 +1744,10 @@ class SiameseHead(Layer):
         head: The index at which the output of the Siamese layer
             should be obtained
     '''
-    def __init__(self, head):
+    def __init__(self, head, **kwargs):
         self.head = head
         self.params = []
-        super(SiameseHead, self).__init__()
+        super(SiameseHead, self).__init__(**kwargs)
 
     def get_output(self, train=False):
         return self.get_input(train)
