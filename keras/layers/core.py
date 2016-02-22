@@ -92,7 +92,7 @@ class Layer(object):
         '''Connect a layer to its parent in the computational graph.
         '''
         assert self.nb_input == layer.nb_output == 1, 'Cannot connect layers: input count and output count should be 1.'
-        if hasattr(self, 'input_ndim'):
+        if hasattr(self, 'input_ndim') and self.input_ndim:
             assert self.input_ndim == len(layer.output_shape), ('Incompatible shapes: layer expected input with ndim=' +
                                                                 str(self.input_ndim) +
                                                                 ' but previous layer has output_shape ' +
@@ -339,7 +339,7 @@ class Masking(MaskedLayer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class TimeDistributedMerge(Layer):
+class TimeDistributedMerge(MaskedLayer):
     '''Sum/multiply/average over the outputs of a TimeDistributed layer.
 
     # Input shape
@@ -364,6 +364,10 @@ class TimeDistributedMerge(Layer):
     @property
     def output_shape(self):
         return (None, self.input_shape[2])
+
+    def get_output_mask(self, train=False):
+        # This layer consumes any masking
+        return None
 
     def get_output(self, train=False):
         X = self.get_input(train)
@@ -433,7 +437,7 @@ class Merge(Layer):
         if mode not in {'sum', 'mul', 'concat', 'ave', 'join', 'cos', 'dot'}:
             raise Exception('Invalid merge mode: ' + str(mode))
 
-        if mode in {'sum', 'mul', 'ave', 'cos'}:
+        if mode in {'sum', 'ave', 'cos'}:
             input_shapes = set([l.output_shape for l in layers])
             if len(input_shapes) > 1:
                 raise Exception('Only layers of same output shape can '
@@ -502,10 +506,17 @@ class Merge(Layer):
         if self.mode in ['sum', 'mul', 'ave']:
             return input_shapes[0]
         elif self.mode == 'concat':
-            output_shape = list(input_shapes[0])
-            for shape in input_shapes[1:]:
-                output_shape[self.concat_axis] += shape[self.concat_axis]
-            return tuple(output_shape)
+            if all([input_shape[self.concat_axis] for input_shape in input_shapes]):
+                output_shape = list(input_shapes[0])
+                for shape in input_shapes[1:]:
+                    output_shape[self.concat_axis] += shape[self.concat_axis]
+                return tuple(output_shape)
+            else:
+                # Cannot infer the output shape as input shape is variable along
+                # concat axis
+                input_shape = input_shapes[0]
+                return (input_shape[:self.concat_axis] + (None,) +
+                        input_shape[self.concat_axis + 1:])
         elif self.mode == 'join':
             return None
         elif self.mode == 'dot':
@@ -953,7 +964,6 @@ class Dense(Layer):
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
-            del self.initial_weights
 
     @property
     def output_shape(self):
@@ -1059,7 +1069,8 @@ class TimeDistributedDense(MaskedLayer):
                  init='glorot_uniform', activation='linear', weights=None,
                  W_regularizer=None, b_regularizer=None, activity_regularizer=None,
                  W_constraint=None, b_constraint=None,
-                 input_dim=None, input_length=None, **kwargs):
+                 input_dim=None, input_length=None, normalize_output=False,
+                 **kwargs):
         self.output_dim = output_dim
         self.init = initializations.get(init)
         self.activation = activations.get(activation)
@@ -1104,7 +1115,6 @@ class TimeDistributedDense(MaskedLayer):
 
         if self.initial_weights is not None:
             self.set_weights(self.initial_weights)
-            del self.initial_weights
 
     @property
     def output_shape(self):
@@ -1113,15 +1123,19 @@ class TimeDistributedDense(MaskedLayer):
 
     def get_output(self, train=False):
         X = self.get_input(train)
+        if K._BACKEND == 'theano':
+            from theano import tensor as T
+            b = self.b.dimshuffle(('x', 'x', 0))
+            outputs = self.activation(T.tensordot(X, self.W, [2, 0]) + b)
+        else:
+            def step(x, states):
+                output = K.dot(x, self.W) + self.b
+                return output, []
 
-        def step(x, states):
-            output = K.dot(x, self.W) + self.b
-            return output, []
-
-        last_output, outputs, states = K.rnn(step, X,
-                                             initial_states=[],
-                                             mask=None)
-        outputs = self.activation(outputs)
+            last_output, outputs, states = K.rnn(step, X,
+                                                initial_states=[],
+                                                mask=None)
+            outputs = self.activation(outputs)
         return outputs
 
     def get_config(self):
@@ -1135,7 +1149,7 @@ class TimeDistributedDense(MaskedLayer):
                   'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
                   'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
                   'input_dim': self.input_dim,
-                  'input_length': self.input_length}
+                  'input_length': self.input_lengthr}
         base_config = super(TimeDistributedDense, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 

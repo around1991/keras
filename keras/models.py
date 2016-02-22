@@ -21,6 +21,7 @@ from .utils.layer_utils import model_summary
 from .utils.generic_utils import Progbar
 from .layers import containers
 
+import pdb
 
 def standardize_y(y):
     if not hasattr(y, 'shape'):
@@ -1076,6 +1077,7 @@ class Graph(Model, containers.Graph):
         self.loss = loss
 
         self._train = K.function(train_ins, [train_loss], updates=updates)
+#                                 mode=NanGuardMode(nan_is_error=True, inf_is_error=True, big_is_error=False))
         self._test = K.function(test_ins, [test_loss], updates=self.state_updates)
         self._predict = K.function(inputs=ins, outputs=ys_test,
                                    updates=self.state_updates)

@@ -4,11 +4,11 @@ from __future__ import print_function
 
 from collections import OrderedDict
 from .. import backend as K
-from ..layers.core import Layer, Merge, Siamese, SiameseHead
+from ..layers.core import Layer, MaskedLayer, Merge, Siamese, SiameseHead
 from six.moves import range
 
 
-class Sequential(Layer):
+class Sequential(MaskedLayer):
     '''The Sequential container is a linear stack of layers.
     Apart from the `add` methods and the `layers` constructor argument,
     the API is identical to that of the `Layer` class.
@@ -70,12 +70,15 @@ class Sequential(Layer):
             if not hasattr(self.layers[0], 'input'):
                 self.set_input()
 
+    def get_output_mask(self, train=False):
+        return self.layers[-1].get_output_mask(train)
+
     @property
     def params(self):
         params = []
         for l in self.layers:
             if l.trainable:
-                params += l.get_params()[0]
+                params += [param for param in l.get_params()[0] if param not in params]
         return params
 
     @property
@@ -203,7 +206,7 @@ class Graph(Layer):
         params = []
         for l in self.nodes.values():
             if l.trainable:
-                params += l.get_params()[0]
+                params += [param for param in l.get_params()[0] if param not in params]
         return params
 
     @property
@@ -314,12 +317,9 @@ class Graph(Layer):
         if dtype == 'float':
             layer.input = K.placeholder(shape=layer.input_shape, name=name)
         else:
-            if (input_shape and len(input_shape) == 1) or (batch_input_shape and len(batch_input_shape) == 2):
-                layer.input = K.placeholder(shape=layer.input_shape,
-                                            dtype='int32',
-                                            name=name)
-            else:
-                raise Exception('Type "int" can only be used with ndim==2 (Embedding).')
+            layer.input = K.placeholder(shape=layer.input_shape,
+                                        dtype='int32',
+                                        name=name)
         self.inputs[name] = layer
         self.input_config.append({'name': name,
                                   'input_shape': input_shape,
@@ -359,17 +359,20 @@ class Graph(Layer):
             elif input in self.inputs:
                 layer.set_previous(self.inputs[input], overwrite_weights)
         if inputs:
-            to_merge = []
+            inputs_layers = []
             for n in inputs:
                 if n in self.nodes:
-                    to_merge.append(self.nodes[n])
+                    inputs_layers.append(self.nodes[n])
                 elif n in self.inputs:
-                    to_merge.append(self.inputs[n])
+                    inputs_layers.append(self.inputs[n])
                 else:
                     raise Exception('Unknown identifier: ' + n)
-            merge = Merge(to_merge, mode=merge_mode,
-                          concat_axis=concat_axis, dot_axes=dot_axes)
-            layer.set_previous(merge, overwrite_weights)
+            if merge_mode:
+                merge = Merge(inputs_layers, mode=merge_mode,
+                              concat_axis=concat_axis, dot_axes=dot_axes)
+                layer.set_previous(merge, overwrite_weights)
+            else:
+                layer = layer[0](inputs_layers, **layer[1])
 
         self.namespace.add(name)
         layer.layer_cache = self.layer_cache

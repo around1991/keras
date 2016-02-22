@@ -15,7 +15,8 @@ from .. import regularizers
 from .. import constraints
 
 
-def container_from_config(original_layer_dict, custom_objects={}):
+def container_from_config(original_layer_dict, custom_objects={},
+                          instantiate=True):
     layer_dict = copy.deepcopy(original_layer_dict)
     name = layer_dict.get('name')
 
@@ -54,8 +55,26 @@ def container_from_config(original_layer_dict, custom_objects={}):
 
         nodes = layer_dict.get('node_config')
         for node in nodes:
-            layer = container_from_config(layer_dict['nodes'].get(node['name']))
-            node['layer'] = layer
+            if node['shared'] or node['merge_mode']:
+                layer = container_from_config(layer_dict['nodes'].get(node['name']))
+                node['layer'] = layer
+            else:
+                layer= container_from_config(layer_dict['nodes'].get(node['name']),
+                                             instantiate=False)
+                kwargs = layer_dict['nodes'].get(node['name'])
+                kwargs['name'] = kwargs.pop('custom_name')
+                for k, v in kwargs.items():
+                    # a dictionary argument may be a regularizer or constraint
+                    if isinstance(v, dict):
+                        vname = v.pop('name')
+                        if vname in [x for x, y in inspect.getmembers(constraints, predicate=inspect.isclass)]:
+                            kwargs[k] = constraints.get(vname, v)
+                        elif vname in [x for x, y in inspect.getmembers(regularizers, predicate=inspect.isclass)]:
+                            kwargs[k] = regularizers.get(vname, v)
+                        else:
+                            # not a regularizer of constraint, don't touch it
+                            v['name'] = vname
+                node['layer'] = (layer, kwargs)
             if not node.pop('shared'):
                 graph_layer.add_node(**node)
             else:
@@ -100,7 +119,7 @@ def container_from_config(original_layer_dict, custom_objects={}):
         # the "name" keyword argument of layers is saved as "custom_name"
         if 'custom_name' in layer_dict:
             layer_dict['name'] = layer_dict.pop('custom_name')
-        base_layer = get_layer(name, layer_dict)
+        base_layer = get_layer(name, layer_dict, instantiate)
         return base_layer
 
 
@@ -164,6 +183,6 @@ def model_summary(model):
 
 
 from .generic_utils import get_from_module
-def get_layer(identifier, kwargs=None):
+def get_layer(identifier, kwargs=None, instantiate=True):
     return get_from_module(identifier, globals(), 'layer',
-                           instantiate=True, kwargs=kwargs)
+                           instantiate, kwargs=kwargs)
