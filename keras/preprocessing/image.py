@@ -10,6 +10,7 @@ from os.path import isfile, join
 import random
 import math
 from six.moves import range
+import threading
 
 '''Fairly basic set of tools for realtime data augmentation on image data.
 Can easily be extended to include new transformations, new preprocessing methods, etc...
@@ -27,19 +28,16 @@ def random_rotation(x, rg, fill_mode="nearest", cval=0.):
 
 
 def random_shift(x, wrg, hrg, fill_mode="nearest", cval=0.):
-    crop_left_pixels = 0
-    crop_top_pixels = 0
+    shift_x = shift_y = 0
 
     if wrg:
-        crop = random.uniform(0., wrg)
-        split = random.uniform(0, 1)
-        crop_left_pixels = int(split*crop*x.shape[1])
+        shift_x = random.uniform(-wrg, wrg) * x.shape[2]
     if hrg:
-        crop = random.uniform(0., hrg)
-        split = random.uniform(0, 1)
-        crop_top_pixels = int(split*crop*x.shape[2])
-    x = ndimage.interpolation.shift(x, (0, crop_left_pixels, crop_top_pixels),
-                                    mode=fill_mode, cval=cval)
+        shift_y = random.uniform(-hrg, hrg) * x.shape[1]
+    x = ndimage.interpolation.shift(x, (0, shift_y, shift_x),
+                                    order=0,
+                                    mode=fill_mode,
+                                    cval=cval)
     return x
 
 
@@ -60,9 +58,16 @@ def random_barrel_transform(x, intensity):
     pass
 
 
-def random_shear(x, intensity):
-    # TODO
-    pass
+def random_shear(x, intensity, fill_mode="nearest", cval=0.):
+    shear = random.uniform(-intensity, intensity)
+    shear_matrix = np.array([[1.0, -math.sin(shear), 0.0],
+                            [0.0, math.cos(shear), 0.0],
+                            [0.0, 0.0, 1.0]])
+    x = ndimage.interpolation.affine_transform(x, shear_matrix,
+                                               mode=fill_mode,
+                                               order=3,
+                                               cval=cval)
+    return x
 
 
 def random_channel_shift(x, rg):
@@ -74,7 +79,8 @@ def random_zoom(x, rg, fill_mode="nearest", cval=0.):
     zoom_w = random.uniform(1.-rg, 1.)
     zoom_h = random.uniform(1.-rg, 1.)
     x = ndimage.interpolation.zoom(x, zoom=(1., zoom_w, zoom_h),
-                                   mode=fill_mode, cval=cval)
+                                   mode=fill_mode,
+                                   cval=cval)
     return x  # shape of result will be different from shape of input!
 
 
@@ -132,48 +138,80 @@ class ImageDataGenerator(object):
                  rotation_range=0.,  # degrees (0 to 180)
                  width_shift_range=0.,  # fraction of total width
                  height_shift_range=0.,  # fraction of total height
+                 shear_range=0.,  # shear intensity (shear angle in radians)
                  horizontal_flip=False,
                  vertical_flip=False):
+
         self.__dict__.update(locals())
         self.mean = None
         self.std = None
         self.principal_components = None
+        self.lock = threading.Lock()
 
-    def flow(self, X, y, batch_size=32, shuffle=False, seed=None,
-             save_to_dir=None, save_prefix="", save_format="jpeg"):
-        assert len(X) == len(y)
-        if seed:
-            random.seed(seed)
-
-        if shuffle:
-            seed = random.randint(1, 10e6)
-            np.random.seed(seed)
-            np.random.shuffle(X)
-            np.random.seed(seed)
-            np.random.shuffle(y)
-
+    def _flow_index(self, N, batch_size=32, shuffle=False, seed=None):
         b = 0
+        total_b = 0
         while 1:
-            current_index = (b * batch_size) % X.shape[0]
-            if X.shape[0] >= current_index + batch_size:
+            if b == 0:
+                if seed is not None:
+                    np.random.seed(seed + total_b)
+
+                if shuffle:
+                    index_array = np.random.permutation(N)
+                else:
+                    index_array = np.arange(N)
+
+            current_index = (b * batch_size) % N
+            if N >= current_index + batch_size:
                 current_batch_size = batch_size
             else:
-                current_batch_size = X.shape[0] - current_index
-            bX = np.zeros(tuple([current_batch_size] + list(X.shape)[1:]))
-            for i in range(current_batch_size):
-                x = X[current_index + i]
-                x = self.random_transform(x.astype("float32"))
-                x = self.standardize(x)
-                bX[i] = x
-            if save_to_dir:
-                for i in range(current_batch_size):
-                    img = array_to_img(bX[i], scale=True)
-                    img.save(save_to_dir + "/" + save_prefix + "_" + str(current_index + i) + "." + save_format)
+                current_batch_size = N - current_index
+
             if current_batch_size == batch_size:
                 b += 1
             else:
                 b = 0
-            yield bX, y[current_index: current_index + batch_size]
+            total_b += 1
+            yield index_array[current_index: current_index + current_batch_size], current_index, current_batch_size
+
+    def flow(self, X, y, batch_size=32, shuffle=False, seed=None,
+             save_to_dir=None, save_prefix="", save_format="jpeg"):
+        assert len(X) == len(y)
+        self.X = X
+        self.y = y
+        self.save_to_dir = save_to_dir
+        self.save_prefix = save_prefix
+        self.save_format = save_format
+        self.flow_generator = self._flow_index(X.shape[0], batch_size, shuffle, seed)
+        return self
+
+    def __iter__(self):
+        # needed if we want to do something like for x,y in data_gen.flow(...):
+        return self
+
+    def next(self):
+        # for python 2.x
+        # Keep under lock only the mechainsem which advance the indexing of each batch
+        # see # http://anandology.com/blog/using-iterators-and-generators/
+        with self.lock:
+            index_array, current_index, current_batch_size = next(self.flow_generator)
+        # The transformation of images is not under thread lock so it can be done in parallel
+        bX = np.zeros(tuple([current_batch_size] + list(self.X.shape)[1:]))
+        for i, j in enumerate(index_array):
+            x = self.X[j]
+            x = self.random_transform(x.astype("float32"))
+            x = self.standardize(x)
+            bX[i] = x
+        if self.save_to_dir:
+            for i in range(current_batch_size):
+                img = array_to_img(bX[i], scale=True)
+                img.save(self.save_to_dir + "/" + self.save_prefix + "_" + str(current_index + i) + "." + self.save_format)
+        bY = self.y[index_array]
+        return bX, bY
+
+    def __next__(self):
+        # for python 3.x
+        return self.next()
 
     def standardize(self, x):
         if self.featurewise_center:
@@ -204,7 +242,8 @@ class ImageDataGenerator(object):
         if self.vertical_flip:
             if random.random() < 0.5:
                 x = vertical_flip(x)
-
+        if self.shear_range:
+            x = random_shear(x,self.shear_range)
         # TODO:
         # zoom
         # barrel/fisheye
@@ -241,3 +280,12 @@ class ImageDataGenerator(object):
             sigma = np.dot(flatX.T, flatX) / flatX.shape[1]
             U, S, V = linalg.svd(sigma)
             self.principal_components = np.dot(np.dot(U, np.diag(1. / np.sqrt(S + fudge))), U.T)
+
+
+class GraphImageDataGenerator(ImageDataGenerator):
+    '''Example of how to build a generator for a Graph model
+    '''
+
+    def next(self):
+        bX, bY = super(GraphImageDataGenerator, self).next()
+        return {'input': bX, 'output': bY}
