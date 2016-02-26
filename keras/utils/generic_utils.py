@@ -4,6 +4,8 @@ import time
 import sys
 import six
 
+from collections import deque
+
 
 def get_from_module(identifier, module_params, module_name,
                     instantiate=False, kwargs=None):
@@ -38,6 +40,8 @@ class Progbar(object):
         self.total_width = 0
         self.seen_so_far = 0
         self.verbose = verbose
+        self.updates = 0
+        self.containers = {}
 
     def update(self, current, values=[]):
         '''
@@ -45,13 +49,23 @@ class Progbar(object):
             @param values: list of tuples (name, value_for_last_step).
             The progress bar will display averages for these values.
         '''
+        self.updates += 1
         for k, v in values:
             if k not in self.sum_values:
                 self.sum_values[k] = [v * (current - self.seen_so_far), current - self.seen_so_far]
+                self.containers['recent ' + k] = deque(maxlen=10)
+                self.containers['recent ' + k].append(v)
+                self.sum_values['recent ' + k] = [sum(self.containers['recent ' + k]),
+                                                  len(self.containers['recent ' + k])]
                 self.unique_values.append(k)
+                self.unique_values.append('recent ' + k)
             else:
                 self.sum_values[k][0] += v * (current - self.seen_so_far)
                 self.sum_values[k][1] += (current - self.seen_so_far)
+                self.containers['recent ' + k].append(v)
+                self.sum_values['recent ' + k][0] = sum(self.containers['recent ' + k])
+                self.sum_values['recent ' + k][1] = len(self.containers['recent ' + k])
+
         self.seen_so_far = current
 
         now = time.time()

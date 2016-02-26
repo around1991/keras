@@ -357,7 +357,6 @@ class Graph(Layer):
         '''
         if name in self.namespace:
             raise Exception('Duplicate node identifier: ' + name)
-        layer.name = name
         if input:
             if input not in self.namespace:
                 raise Exception('Unknown node/input identifier: ' + input)
@@ -381,6 +380,7 @@ class Graph(Layer):
             else:
                 layer = layer[0](inputs_layers, **layer[1])
 
+        layer.name = name
         self.namespace.add(name)
         layer.layer_cache = self.layer_cache
         layer.shape_cache = self.shape_cache

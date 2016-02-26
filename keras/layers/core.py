@@ -626,15 +626,15 @@ class TimeDistributedMerge(Layer):
         X = self.get_input(train)
         if self.mode == 'ave':
             s = K.mean(X, axis=1)
-            return s
         if self.mode == 'sum':
             s = K.sum(X, axis=1)
-            return s
         elif self.mode == 'mul':
             s = K.prod(X, axis=1)
-            return s
+        elif self.mode == 'max':
+            s = K.max(X, axis=1)
         else:
             raise Exception('Unknown merge mode')
+        return s
 
     def get_config(self):
         config = {'name': self.__class__.__name__,
@@ -1126,7 +1126,7 @@ class TimeDistributedDense(MaskedLayer):
                   'W_constraint': self.W_constraint.get_config() if self.W_constraint else None,
                   'b_constraint': self.b_constraint.get_config() if self.b_constraint else None,
                   'input_dim': self.input_dim,
-                  'input_length': self.input_lengthr}
+                  'input_length': self.input_length}
         base_config = super(TimeDistributedDense, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
