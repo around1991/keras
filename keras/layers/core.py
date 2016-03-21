@@ -469,7 +469,8 @@ class Merge(Layer):
     def output_shape(self):
         input_shapes = [layer.output_shape for layer in self.layers]
         if self.mode in ['sum', 'mul', 'ave']:
-            return input_shapes[0]
+            # Need to check for broadcastable axes
+            return [max(shape[i] for shape in input_shapes) for i in range(len(input_shapes[0]))]
         elif self.mode == 'concat':
             if all([input_shape[self.concat_axis] for input_shape in input_shapes]):
                 output_shape = list(input_shapes[0])
@@ -547,8 +548,10 @@ class Merge(Layer):
             from theano import tensor as T
             l1 = self.layers[0].get_output(train)
             l2 = self.layers[1].get_output(train)
-            output = T.batched_tensordot(l1, l2, self.dot_axes) / T.sqrt(T.batched_tensordot(l1, l1, self.dot_axes) * T.batched_tensordot(l2, l2, self.dot_axes))
-            output = output.dimshuffle((0, 'x'))
+            l1_norm = K.l2_normalize(l1, axis=-1)
+            l2_norm = K.l2_normalize(l2, axis=-1)
+            output = T.batched_tensordot(l1_norm, l2_norm, self.dot_axes)
+            output = K.expand_dims(output, -1)
             return output
         else:
             raise Exception('Unknown merge mode.')
@@ -572,7 +575,12 @@ class Merge(Layer):
         return False
 
     def get_output_mask(self, train=None):
-        return None
+        # for merge modes which keep the dimensionality of the output,
+        # assume the mask is passed through the first input
+        if self.mode in {'sum', 'ave', 'mul', 'concat'}:
+            return self.layers[0].get_output_mask(train)
+        else:
+            return None
 
     def get_weights(self):
         weights = []
