@@ -10,6 +10,7 @@ from ..layers.embeddings import *
 from ..layers.noise import *
 from ..layers.normalization import *
 from ..layers.recurrent import *
+from ..layers.wrappers import *
 from ..layers import containers
 from .. import regularizers
 from .. import constraints
@@ -79,6 +80,7 @@ def container_from_config(original_layer_dict, custom_objects={},
                 graph_layer.add_node(**node)
             else:
                 graph_layer.add_shared_node(**node)
+            graph_layer.add_node(**node)
 
         outputs = layer_dict.get('output_config')
         for output in outputs:
@@ -101,6 +103,14 @@ def container_from_config(original_layer_dict, custom_objects={},
         for kwarg in layer_dict:
             kwargs[kwarg] = layer_dict[kwarg]
         return Siamese(**kwargs)
+
+    elif name == 'TimeDistributed':
+        child_layer = container_from_config(layer_dict.pop('layer'))
+        # the "name" keyword argument of layers is saved as "custom_name"
+        if 'custom_name' in layer_dict:
+            layer_dict['name'] = layer_dict.pop('custom_name')
+        return TimeDistributed(child_layer, **layer_dict)
+
     else:  # this is a non-topological layer (e.g. Dense, etc.)
         layer_dict.pop('name')
 
@@ -120,6 +130,7 @@ def container_from_config(original_layer_dict, custom_objects={},
         if 'custom_name' in layer_dict:
             layer_dict['name'] = layer_dict.pop('custom_name')
         base_layer = get_layer(name, layer_dict, instantiate)
+
         return base_layer
 
 
