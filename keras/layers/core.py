@@ -1882,8 +1882,12 @@ class Siamese(Layer):
     def supports_masked_input(self):
         return False
 
-    def get_output_mask(self, train=None):
+    def get_output_mask(self, train=False):
         return None
+
+    def get_output_mask_at(self, head, train=False):
+        self.set_layer_input(head)
+        return self.layer.get_output_mask(train)
 
     def get_weights(self):
         weights = self.layer.get_weights()
@@ -1924,6 +1928,12 @@ class SiameseHead(Layer):
 
     def get_output(self, train=False):
         return self.get_input(train)
+
+    def get_output_mask(self, train=False):
+        return self.get_input_mask(train)
+
+    def get_input_mask(self, train=False):
+        return self.previous.get_output_mask_at(self.head, train)
 
     @property
     def input_shape(self):
