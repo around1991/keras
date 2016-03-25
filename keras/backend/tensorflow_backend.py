@@ -736,5 +736,14 @@ def random_uniform(shape, low=0.0, high=1.0, dtype=_FLOATX, seed=None):
 def random_binomial(shape, p=0.0, dtype=_FLOATX, seed=None):
     if seed is None:
         seed = np.random.randint(10e6)
-    return tf.select(tf.random_uniform(shape, dtype=dtype, seed=seed) <= p, 
+    return tf.select(tf.random_uniform(shape, dtype=dtype, seed=seed) <= p,
                      tf.ones(shape), tf.zeros(shape))
+
+
+# SUBTENSOR UPDATES
+
+def scatter_add(tensor, indices, updates):
+    return tf.scatter_add(tensor, indices, updates)
+
+def scatter_update(tensor, indices, updates):
+    return tf.scatter_update(tensor[indices], updates)

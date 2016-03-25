@@ -68,7 +68,7 @@ class Sequential(MaskedLayer):
         self.layers.append(layer)
         if len(self.layers) > 1:
             self.layers[-1].set_previous(self.layers[-2],
-                                         overwrite_weights=overwrite_weights)
+                                         reset_weights=overwrite_weights)
             if not hasattr(self.layers[0], 'input'):
                 self.set_input()
 
@@ -82,6 +82,21 @@ class Sequential(MaskedLayer):
             if l.trainable:
                 weights += [param for param in l.get_params()[0] if param not in weights]
         return weights
+
+    @property
+    def grad_dictionary(self):
+        grad_dict = {}
+        for l in self.layers:
+            layer_grad_dict = l.grad_dictionary
+            for param in layer_grad_dict:
+                if param not in grad_dict:
+                    grad_dict[param] = layer_grad_dict[param]
+                else:
+                    for key in [x for x in grad_dict[param] if x in layer_grad_dict[param]]:
+                        assert grad_dict[param][key] == layer_grad_dict[param][key], \
+                        "inconsistent gradient variable associated with param {}, key {}".format(param, key)
+                    grad_dict[param].update(layer_grad_dict[param])
+        return grad_dict
 
     @property
     def regularizers(self):
@@ -268,6 +283,21 @@ class Graph(Layer):
     @property
     def nb_output(self):
         return len(self.outputs)
+
+    @property
+    def grad_dictionary(self):
+        grad_dict = {}
+        for l in self.nodes.values():
+            layer_grad_dict = l.grad_dictionary
+            for param in layer_grad_dict:
+                if param not in grad_dict:
+                    grad_dict[param] = layer_grad_dict[param]
+                else:
+                    for key in [x for x in grad_dict[param] if x in layer_grad_dict[param]]:
+                        assert grad_dict[param][key] == layer_grad_dict[param][key], \
+                        "inconsistent gradient variable associated with param {}, key {}".format(param, key)
+                    grad_dict[param].update(layer_grad_dict[param])
+        return grad_dict
 
     @property
     def trainable_weights(self):
